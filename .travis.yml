@@ -1,0 +1,11 @@
+language: d
+d:
+ - dmd
+ - ldc
+os:
+ - linux
+ - osx
+env:
+- DEBUG_VALUE=FSWTestRun1
+- DEBUG_VALUE=FSWTestRun2
+script: dub test -d ${DEBUG_VALUE} --compiler=${DC}
