@@ -1,4 +1,7 @@
 # FSWatch
+
+[![Build Status](https://travis-ci.org/WebFreak001/FSWatch.svg?branch=master)](https://travis-ci.org/WebFreak001/FSWatch) [![Dub version](https://img.shields.io/dub/v/fswatch.svg) ![Dub downloads](https://img.shields.io/dub/dt/fswatch.svg)](https://code.dlang.org/packages/fswatch)
+
 A cross platform library simplifying watching for file changes using a non-blocking interface using the Win32 API, `inotify` or `std.file.dirEntries` as fallback.
 
 ## Comparison between implementations
