@@ -1,0 +1,9 @@
+{
+	"name": "fswatch",
+	"authors": [
+		"webfreak"
+	],
+	"description": "a cross-platform folder & file watching library using win32, inotify or std.file",
+	"copyright": "Copyright © 2016, webfreak",
+	"license": "public domain"
+}
