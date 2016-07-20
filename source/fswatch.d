@@ -534,3 +534,50 @@ unittest
 	ev = waitForEvent(watcher);
 	assert(ev.type == FileChangeEventType.removeSelf);
 }
+
+version(linux) unittest
+{
+	import core.thread;
+
+	FileChangeEvent waitForEvent(ref FileWatch watcher)
+	{
+		FileChangeEvent[] ret;
+		while ((ret = watcher.getEvents()).length == 0)
+		{
+			Thread.sleep(1.msecs);
+		}
+		return ret[0];
+	}
+
+	if (exists("test2"))
+		rmdirRecurse("test2");
+	scope (exit)
+	{
+		if (exists("test2"))
+			rmdirRecurse("test2");
+	}
+
+	auto watcher = FileWatch("test2", true);
+	mkdir("test2");
+	auto ev = waitForEvent(watcher);
+	assert(ev.type == FileChangeEventType.createSelf);
+	write("test2/a.txt", "abc");
+	ev = waitForEvent(watcher);
+	assert(ev.type == FileChangeEventType.create);
+	assert(ev.path == "a.txt");
+	rename("test2/a.txt", "./testfile-a.txt");
+	ev = waitForEvent(watcher);
+	assert(ev.type == FileChangeEventType.remove);
+	assert(ev.path == "a.txt");
+	rename("./testfile-a.txt", "test2/b.txt");
+	ev = waitForEvent(watcher);
+	assert(ev.type == FileChangeEventType.create);
+	assert(ev.path == "b.txt");
+	remove("test2/b.txt");
+	ev = waitForEvent(watcher);
+	assert(ev.type == FileChangeEventType.remove);
+	assert(ev.path == "b.txt");
+	rmdirRecurse("test2");
+	ev = waitForEvent(watcher);
+	assert(ev.type == FileChangeEventType.removeSelf);
+}
