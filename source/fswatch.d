@@ -230,7 +230,7 @@ struct FileWatch
 		import core.sys.linux.sys.inotify : inotify_rm_watch, inotify_init1,
 			inotify_add_watch, inotify_event, IN_CREATE, IN_DELETE,
 			IN_DELETE_SELF, IN_MODIFY, IN_MOVE_SELF, IN_MOVED_FROM, IN_MOVED_TO,
-			IN_NONBLOCK, IN_ATTRIB;
+			IN_NONBLOCK, IN_ATTRIB, IN_EXCL_UNLINK;
 		import core.sys.linux.unistd : close, read;
 		import core.sys.linux.fcntl : fcntl, F_SETFD, FD_CLOEXEC;
 		import core.sys.linux.errno : errno;
@@ -269,8 +269,8 @@ struct FileWatch
 						"inotify_init1 returned invalid file descriptor. Error code "
 						~ errno.to!string);
 				wd = inotify_add_watch(fd, path.toStringz,
-						IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MODIFY
-						| IN_MOVE_SELF | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB);
+						IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MODIFY | IN_MOVE_SELF
+						| IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB | IN_EXCL_UNLINK);
 				assert(wd != -1,
 						"inotify_add_watch returned invalid watch descriptor. Error code "
 						~ errno.to!string);
