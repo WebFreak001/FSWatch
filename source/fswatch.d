@@ -290,6 +290,12 @@ struct FileWatch
 					assert(info.wd == wd);
 					// contains \0 at the end otherwise
 					string fileName = info.name.ptr.fromStringz().idup;
+					if (cookie && (info.mask & IN_MOVED_TO) == 0)
+					{
+						events ~= FileChangeEvent(FileChangeEventType.remove, fromFilename);
+						fromFilename.length = 0;
+						cookie = 0;
+					}
 					if ((info.mask & IN_CREATE) != 0)
 						events ~= FileChangeEvent(FileChangeEventType.create, fileName);
 					if ((info.mask & IN_DELETE) != 0)
@@ -303,9 +309,13 @@ struct FileWatch
 					}
 					if ((info.mask & IN_MOVED_TO) != 0)
 					{
-						assert(info.cookie == cookie, "Cookies don't match");
-						events ~= FileChangeEvent(FileChangeEventType.rename,
-								fromFilename, fileName);
+						if (info.cookie == cookie)
+						{
+							events ~= FileChangeEvent(FileChangeEventType.rename,
+									fromFilename, fileName);
+						}
+						else
+							events ~= FileChangeEvent(FileChangeEventType.create, fileName);
 						cookie = 0;
 					}
 					if ((info.mask & IN_DELETE_SELF) != 0 || (info.mask & IN_MOVE_SELF) != 0)
@@ -321,6 +331,12 @@ struct FileWatch
 					i += inotify_event.sizeof + info.len;
 					if (i >= receivedBytes || (cast(inotify_event*)(eventBuffer.ptr + i)).wd != wd)
 						break;
+				}
+				if (cookie)
+				{
+					events ~= FileChangeEvent(FileChangeEventType.remove, fromFilename);
+					fromFilename.length = 0;
+					cookie = 0;
 				}
 			}
 			return events;
