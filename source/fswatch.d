@@ -264,9 +264,11 @@ struct FileWatch
 			if (!fd && path.exists)
 			{
 				fd = inotify_init1(IN_NONBLOCK);
+				assert(fd != -1, "inotify_init1 returned invalid file descriptor. Error code " ~ errno.to!string);
 				wd = inotify_add_watch(fd, path.toStringz,
 						IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MODIFY
 						| IN_MOVE_SELF | IN_MOVED_FROM | IN_MOVED_TO);
+				assert(wd != -1, "inotify_add_watch returned invalid watch descriptor. Error code " ~ errno.to!string);
 				events ~= FileChangeEvent(FileChangeEventType.createSelf, ".");
 			}
 			if (!fd)
