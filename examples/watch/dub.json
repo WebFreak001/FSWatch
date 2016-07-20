@@ -1,0 +1,14 @@
+{
+	"name": "watch",
+	"authors": [
+		"Roman Chistokhodov"
+	],
+	"dependencies": {
+		"fswatch": "*"
+	},
+	"description": "FSWatch library usage example.",
+	"copyright": "Copyright © 2016, Roman Chistokhodov",
+	"license": "BSL-1.0",
+	"targetPath" : "bin",
+	"targetType" : "executable"
+}
