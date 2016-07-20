@@ -5,6 +5,6 @@
 	],
 	"description": "a cross-platform folder & file watching library using win32, inotify or std.file",
 	"copyright": "Copyright © 2016, webfreak",
-	"license": "public domain",
+	"license": "BSL-1.0",
 	"subPackages" : ["./examples/watch"]
 }
