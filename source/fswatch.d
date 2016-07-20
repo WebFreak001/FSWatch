@@ -230,7 +230,7 @@ struct FileWatch
 		import core.sys.linux.sys.inotify : inotify_rm_watch, inotify_init1,
 			inotify_add_watch, inotify_event, IN_CREATE, IN_DELETE,
 			IN_DELETE_SELF, IN_MODIFY, IN_MOVE_SELF, IN_MOVED_FROM, IN_MOVED_TO,
-			IN_NONBLOCK;
+			IN_NONBLOCK, IN_ATTRIB;
 		import core.sys.linux.unistd : close, read;
 		import core.sys.linux.fcntl : fcntl, F_SETFD, FD_CLOEXEC;
 		import core.sys.linux.errno : errno;
@@ -265,13 +265,18 @@ struct FileWatch
 			if (!fd && path.exists)
 			{
 				fd = inotify_init1(IN_NONBLOCK);
-				assert(fd != -1, "inotify_init1 returned invalid file descriptor. Error code " ~ errno.to!string);
+				assert(fd != -1,
+						"inotify_init1 returned invalid file descriptor. Error code "
+						~ errno.to!string);
 				wd = inotify_add_watch(fd, path.toStringz,
 						IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MODIFY
-						| IN_MOVE_SELF | IN_MOVED_FROM | IN_MOVED_TO);
-				assert(wd != -1, "inotify_add_watch returned invalid watch descriptor. Error code " ~ errno.to!string);
+						| IN_MOVE_SELF | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB);
+				assert(wd != -1,
+						"inotify_add_watch returned invalid watch descriptor. Error code "
+						~ errno.to!string);
 				events ~= FileChangeEvent(FileChangeEventType.createSelf, ".");
-				assert (fcntl(fd, F_SETFD, FD_CLOEXEC) != -1, "Could not set FD_CLOEXEC bit. Error code " ~ errno.to!string);
+				assert(fcntl(fd, F_SETFD, FD_CLOEXEC) != -1,
+						"Could not set FD_CLOEXEC bit. Error code " ~ errno.to!string);
 			}
 			if (!fd)
 				return events;
@@ -304,7 +309,7 @@ struct FileWatch
 						events ~= FileChangeEvent(FileChangeEventType.create, fileName);
 					if ((info.mask & IN_DELETE) != 0)
 						events ~= FileChangeEvent(FileChangeEventType.remove, fileName);
-					if ((info.mask & IN_MODIFY) != 0)
+					if ((info.mask & IN_MODIFY) != 0 || (info.mask & IN_ATTRIB) != 0)
 						events ~= FileChangeEvent(FileChangeEventType.modify, fileName);
 					if ((info.mask & IN_MOVED_FROM) != 0)
 					{
@@ -539,7 +544,7 @@ unittest
 	assert(ev.type == FileChangeEventType.removeSelf);
 }
 
-version(linux) unittest
+version (linux) unittest
 {
 	import core.thread;
 
