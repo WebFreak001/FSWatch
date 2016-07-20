@@ -232,6 +232,7 @@ struct FileWatch
 			IN_DELETE_SELF, IN_MODIFY, IN_MOVE_SELF, IN_MOVED_FROM, IN_MOVED_TO,
 			IN_NONBLOCK;
 		import core.sys.linux.unistd : close, read;
+		import core.sys.linux.fcntl : fcntl, F_SETFD, FD_CLOEXEC;
 		import core.sys.linux.errno : errno;
 		import core.sys.posix.poll : pollfd, poll, POLLIN;
 		import std.string : toStringz, fromStringz;
@@ -270,6 +271,7 @@ struct FileWatch
 						| IN_MOVE_SELF | IN_MOVED_FROM | IN_MOVED_TO);
 				assert(wd != -1, "inotify_add_watch returned invalid watch descriptor. Error code " ~ errno.to!string);
 				events ~= FileChangeEvent(FileChangeEventType.createSelf, ".");
+				assert (fcntl(fd, F_SETFD, FD_CLOEXEC) != -1, "Could not set FD_CLOEXEC bit. Error code " ~ errno.to!string);
 			}
 			if (!fd)
 				return events;
