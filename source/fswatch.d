@@ -76,7 +76,7 @@ struct FileWatch
 			FILE_SHARE_DELETE, OPEN_EXISTING, FILE_FLAG_OVERLAPPED,
 			FILE_FLAG_BACKUP_SEMANTICS, FILE_NOTIFY_CHANGE_FILE_NAME,
 			FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE,
-			ERROR_IO_PENDING, ERROR_IO_INCOMPLETE;
+			ERROR_IO_PENDING, ERROR_IO_INCOMPLETE, DWORD;
 		import std.utf : toUTF8, toUTF16;
 		import std.path : absolutePath;
 		import std.conv : to;
@@ -86,7 +86,7 @@ struct FileWatch
 		private ubyte[1024 * 4] changeBuffer; // 4kb buffer for file changes
 		private bool isDir, exists, recursive;
 		private SysTime timeLastModified;
-		private size_t receivedBytes;
+		private DWORD receivedBytes;
 		private OVERLAPPED overlapObj;
 		private bool queued;
 
