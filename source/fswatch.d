@@ -238,9 +238,11 @@ struct FileWatch
 		import std.string : toStringz, fromStringz;
 		import std.conv : to;
 
-		private int fd, wd;
+		private int fd;
+		private bool[] wds = new bool[1024]; // mark every watch descriptor
 		private ubyte[1024 * 4] eventBuffer; // 4kb buffer for events
 		private pollfd pfd;
+		private string[int] directoryMap; // map every watch descriptor to a directory
 
 		/// Creates an instance using the linux inotify API
 		this(string path, bool ignored1 = false, bool ignored2 = false)
@@ -253,9 +255,25 @@ struct FileWatch
 		{
 			if (fd)
 			{
-				inotify_rm_watch(fd, wd);
+				foreach(uint wd, status; wds)
+					if(status)
+						inotify_rm_watch(fd, wd);
 				close(fd);
 			}
+		}
+
+		private void addWatch(string path)
+		{
+			auto wd = inotify_add_watch(fd, path.toStringz,
+					IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MODIFY | IN_MOVE_SELF
+					| IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB | IN_EXCL_UNLINK);
+			assert(wd != -1,
+					"inotify_add_watch returned invalid watch descriptor. Error code "
+					~ errno.to!string);
+			assert(fcntl(fd, F_SETFD, FD_CLOEXEC) != -1,
+					"Could not set FD_CLOEXEC bit. Error code " ~ errno.to!string);
+			directoryMap[wd] = path;
+			wds[wd] = true;
 		}
 
 		/// Implementation using inotify
@@ -268,15 +286,14 @@ struct FileWatch
 				assert(fd != -1,
 						"inotify_init1 returned invalid file descriptor. Error code "
 						~ errno.to!string);
-				wd = inotify_add_watch(fd, path.toStringz,
-						IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MODIFY | IN_MOVE_SELF
-						| IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB | IN_EXCL_UNLINK);
-				assert(wd != -1,
-						"inotify_add_watch returned invalid watch descriptor. Error code "
-						~ errno.to!string);
-				events ~= FileChangeEvent(FileChangeEventType.createSelf, ".");
-				assert(fcntl(fd, F_SETFD, FD_CLOEXEC) != -1,
-						"Could not set FD_CLOEXEC bit. Error code " ~ errno.to!string);
+				addWatch(path);
+				events ~= FileChangeEvent(FileChangeEventType.createSelf, path);
+
+				foreach(string subPath; dirEntries(path, SpanMode.depth))
+				{
+					addWatch(subPath);
+					events ~= FileChangeEvent(FileChangeEventType.createSelf, subPath);
+				}
 			}
 			if (!fd)
 				return events;
@@ -296,9 +313,10 @@ struct FileWatch
 				while (true)
 				{
 					auto info = cast(inotify_event*)(eventBuffer.ptr + i);
-					assert(info.wd == wd);
 					// contains \0 at the end otherwise
 					string fileName = info.name.ptr.fromStringz().idup;
+					string absoluteFileName = directoryMap[info.wd] ~ "/" ~ fileName;
+					string relativeFilename = absoluteFileName[path.length + 1 .. $];
 					if (cookie && (info.mask & IN_MOVED_TO) == 0)
 					{
 						events ~= FileChangeEvent(FileChangeEventType.remove, fromFilename);
@@ -306,11 +324,17 @@ struct FileWatch
 						cookie = 0;
 					}
 					if ((info.mask & IN_CREATE) != 0)
-						events ~= FileChangeEvent(FileChangeEventType.create, fileName);
+					{
+						if (absoluteFileName.isDir)
+						{
+							addWatch(absoluteFileName);
+						}
+						events ~= FileChangeEvent(FileChangeEventType.create, relativeFilename);
+					}
 					if ((info.mask & IN_DELETE) != 0)
-						events ~= FileChangeEvent(FileChangeEventType.remove, fileName);
+						events ~= FileChangeEvent(FileChangeEventType.remove, relativeFilename);
 					if ((info.mask & IN_MODIFY) != 0 || (info.mask & IN_ATTRIB) != 0)
-						events ~= FileChangeEvent(FileChangeEventType.modify, fileName);
+						events ~= FileChangeEvent(FileChangeEventType.modify, relativeFilename);
 					if ((info.mask & IN_MOVED_FROM) != 0)
 					{
 						fromFilename = fileName;
@@ -321,24 +345,24 @@ struct FileWatch
 						if (info.cookie == cookie)
 						{
 							events ~= FileChangeEvent(FileChangeEventType.rename,
-									fromFilename, fileName);
+									fromFilename, relativeFilename);
 						}
 						else
-							events ~= FileChangeEvent(FileChangeEventType.create, fileName);
+							events ~= FileChangeEvent(FileChangeEventType.create, relativeFilename);
 						cookie = 0;
 					}
 					if ((info.mask & IN_DELETE_SELF) != 0 || (info.mask & IN_MOVE_SELF) != 0)
 					{
 						if (fd)
 						{
-							inotify_rm_watch(fd, wd);
-							close(fd);
-							fd = wd = 0;
+							inotify_rm_watch(fd, info.wd);
+							wds[info.wd] = false;
 						}
-						events ~= FileChangeEvent(FileChangeEventType.removeSelf, ".");
+						if (directoryMap[info.wd] == path)
+							events ~= FileChangeEvent(FileChangeEventType.removeSelf, path);
 					}
 					i += inotify_event.sizeof + info.len;
-					if (i >= receivedBytes || (cast(inotify_event*)(eventBuffer.ptr + i)).wd != wd)
+					if (i >= receivedBytes)
 						break;
 				}
 				if (cookie)
@@ -560,10 +584,14 @@ version (linux) unittest
 
 	if (exists("test2"))
 		rmdirRecurse("test2");
+	if (exists("test3"))
+		rmdirRecurse("test3");
 	scope (exit)
 	{
 		if (exists("test2"))
 			rmdirRecurse("test2");
+		if (exists("test3"))
+			rmdirRecurse("test3");
 	}
 
 	auto watcher = FileWatch("test2", true);
@@ -586,7 +614,44 @@ version (linux) unittest
 	ev = waitForEvent(watcher);
 	assert(ev.type == FileChangeEventType.remove);
 	assert(ev.path == "b.txt");
+
+	version (INotify)
+	{
+		// test for creation, modification, removal of subdirectory
+		mkdir("test2/subdir");
+		ev = waitForEvent(watcher);
+		assert(ev.type == FileChangeEventType.create);
+		write("test2/subdir/c.txt", "abc");
+		ev = waitForEvent(watcher);
+		assert(ev.type == FileChangeEventType.create);
+		write("test2/subdir/c.txt", "\nabc");
+		ev = waitForEvent(watcher);
+		assert(ev.type == FileChangeEventType.modify);
+		rmdirRecurse("test2/subdir");
+		auto events = watcher.getEvents();
+		assert(events[0].type == FileChangeEventType.remove); // c.txt
+		assert(events[1].type == FileChangeEventType.remove); // subdir
+	}
+	// removal of watched folder
 	rmdirRecurse("test2");
 	ev = waitForEvent(watcher);
 	assert(ev.type == FileChangeEventType.removeSelf);
+
+	version (INotify)
+	{
+		// test for a subdirectory already present
+		mkdir("test3");
+		mkdir("test3/a");
+		mkdir("test3/a/b");
+		watcher = FileWatch("test3", true);
+		write("test3/a/b/c.txt", "abc");
+		ev = waitForEvent(watcher);
+		assert(ev.type == FileChangeEventType.create);
+		rmdirRecurse("test3");
+		events = watcher.getEvents();
+		assert(events[0].type == FileChangeEventType.remove); // a.txt
+		assert(events[1].type == FileChangeEventType.remove); // a/b
+		assert(events[2].type == FileChangeEventType.remove); // a
+		assert(events[3].type == FileChangeEventType.removeSelf); // test3
+	}
 }
