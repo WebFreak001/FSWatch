@@ -362,7 +362,7 @@ struct FileWatch
 							directoryMap[info.wd].watched = false;
 						}
 						if (directoryMap[info.wd].path == path)
-							events ~= FileChangeEvent(FileChangeEventType.removeSelf, path);
+							events ~= FileChangeEvent(FileChangeEventType.removeSelf, ".");
 					}
 					i += inotify_event.sizeof + info.len;
 					if (i >= receivedBytes)
@@ -624,12 +624,15 @@ version (linux) unittest
 		mkdir("test2/subdir");
 		ev = waitForEvent(watcher);
 		assert(ev.type == FileChangeEventType.create);
+		assert(ev.path == "subdir");
 		write("test2/subdir/c.txt", "abc");
 		ev = waitForEvent(watcher);
 		assert(ev.type == FileChangeEventType.create);
+		assert(ev.path == "subdir/c.txt");
 		write("test2/subdir/c.txt", "\nabc");
 		ev = waitForEvent(watcher);
 		assert(ev.type == FileChangeEventType.modify);
+		assert(ev.path == "subdir/c.txt");
 		rmdirRecurse("test2/subdir");
 		auto events = watcher.getEvents();
 		assert(events[0].type == FileChangeEventType.remove);
@@ -641,6 +644,7 @@ version (linux) unittest
 	rmdirRecurse("test2");
 	ev = waitForEvent(watcher);
 	assert(ev.type == FileChangeEventType.removeSelf);
+	assert(ev.path == ".");
 
 	version (FSWUsesINotify)
 	{
@@ -657,6 +661,7 @@ version (linux) unittest
 			{
 				ev = waitForEvent(watcher);
 				assert(ev.type == FileChangeEventType.create);
+				assert(ev.path == "a/b/c.txt");
 			}
 			if (!recursive)
 			{
@@ -686,7 +691,7 @@ version (linux) unittest
 				assert(events[2].type == FileChangeEventType.remove);
 				assert(events[2].path == "a");
 				assert(events[3].type == FileChangeEventType.removeSelf);
-				assert(events[3].path == "test3");
+				assert(events[3].path == ".");
 			}
 			else
 			{
@@ -694,7 +699,7 @@ version (linux) unittest
 				assert(events[0].type == FileChangeEventType.remove);
 				assert(events[0].path == "a");
 				assert(events[1].type == FileChangeEventType.removeSelf);
-				assert(events[1].path == "test3");
+				assert(events[1].path == ".");
 			}
 		}
 	}
