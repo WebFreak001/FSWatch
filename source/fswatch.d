@@ -235,6 +235,7 @@ struct FileWatch
 		import core.sys.linux.fcntl : fcntl, F_SETFD, FD_CLOEXEC;
 		import core.sys.linux.errno : errno;
 		import core.sys.posix.poll : pollfd, poll, POLLIN;
+		import std.algorithm : countUntil;
 		import std.string : toStringz, fromStringz;
 		import std.conv : to;
 		import std.path : relativePath, buildPath;
@@ -244,7 +245,7 @@ struct FileWatch
 		private ubyte[1024 * 4] eventBuffer; // 4kb buffer for events
 		private pollfd pfd;
 		private struct FDInfo { int wd; bool watched; string path; }
-		private FDInfo[1024 * 4] directoryMap; // map every watch descriptor to a directory
+		private FDInfo[] directoryMap; // map every watch descriptor to a directory
 
 		/// Creates an instance using the linux inotify API
 		this(string path, bool recursive = false, bool ignored = false)
@@ -258,7 +259,7 @@ struct FileWatch
 		{
 			if (fd)
 			{
-				foreach (fdinfo; directoryMap)
+				foreach (ref fdinfo; directoryMap)
 					if (fdinfo.watched)
 						inotify_rm_watch(fd, fdinfo.wd);
 				close(fd);
@@ -275,7 +276,7 @@ struct FileWatch
 					~ errno.to!string);
 			assert(fcntl(fd, F_SETFD, FD_CLOEXEC) != -1,
 					"Could not set FD_CLOEXEC bit. Error code " ~ errno.to!string);
-			directoryMap[wd] = FDInfo(wd, true, path);
+			directoryMap ~= FDInfo(wd, true, path);
 		}
 
 		/// Implementation using inotify
@@ -318,7 +319,8 @@ struct FileWatch
 					auto info = cast(inotify_event*)(eventBuffer.ptr + i);
 					// contains \0 at the end otherwise
 					string fileName = info.name.ptr.fromStringz().idup;
-					string absoluteFileName = buildPath(directoryMap[info.wd].path, fileName);
+					auto mapIndex = directoryMap.countUntil!(a => a.wd == info.wd);
+					string absoluteFileName = buildPath(directoryMap[mapIndex].path, fileName);
 					string relativeFilename = relativePath("/" ~ absoluteFileName, "/" ~ path);
 					if (cookie && (info.mask & IN_MOVED_TO) == 0)
 					{
@@ -359,9 +361,9 @@ struct FileWatch
 						if (fd)
 						{
 							inotify_rm_watch(fd, info.wd);
-							directoryMap[info.wd].watched = false;
+							directoryMap[mapIndex].watched = false;
 						}
-						if (directoryMap[info.wd].path == path)
+						if (directoryMap[mapIndex].path == path)
 							events ~= FileChangeEvent(FileChangeEventType.removeSelf, ".");
 					}
 					i += inotify_event.sizeof + info.len;
