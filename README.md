@@ -20,7 +20,7 @@ Don't do this unless you have a specific reason as you will lose speed and accur
 ```d
 void main()
 {
-	// Initializes a FileWatch instance to watch on `project1/` recursively (recursive option does not have an effect on linux, its always recursive)
+	// Initializes a FileWatch instance to watch on `project1/` (first argument) recursively (second argument)
 	auto watcher = FileWatch("project1/", true);
 	while (true)
 	{
