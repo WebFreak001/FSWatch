@@ -237,15 +237,20 @@ struct FileWatch
 		import core.sys.posix.poll : pollfd, poll, POLLIN;
 		import std.string : toStringz, fromStringz;
 		import std.conv : to;
+		import std.path : relativePath, buildPath;
 
-		private int fd, wd;
+		private int fd;
+		private bool recursive;
 		private ubyte[1024 * 4] eventBuffer; // 4kb buffer for events
 		private pollfd pfd;
+		private struct FDInfo { int wd; bool watched; string path; }
+		private FDInfo[1024 * 4] directoryMap; // map every watch descriptor to a directory
 
 		/// Creates an instance using the linux inotify API
-		this(string path, bool ignored1 = false, bool ignored2 = false)
+		this(string path, bool recursive = false, bool ignored = false)
 		{
 			this.path = path;
+			this.recursive = recursive;
 			getEvents();
 		}
 
@@ -253,9 +258,24 @@ struct FileWatch
 		{
 			if (fd)
 			{
-				inotify_rm_watch(fd, wd);
+				foreach (fdinfo; directoryMap)
+					if (fdinfo.watched)
+						inotify_rm_watch(fd, fdinfo.wd);
 				close(fd);
 			}
+		}
+
+		private void addWatch(string path)
+		{
+			auto wd = inotify_add_watch(fd, path.toStringz,
+					IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MODIFY | IN_MOVE_SELF
+					| IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB | IN_EXCL_UNLINK);
+			assert(wd != -1,
+					"inotify_add_watch returned invalid watch descriptor. Error code "
+					~ errno.to!string);
+			assert(fcntl(fd, F_SETFD, FD_CLOEXEC) != -1,
+					"Could not set FD_CLOEXEC bit. Error code " ~ errno.to!string);
+			directoryMap[wd] = FDInfo(wd, true, path);
 		}
 
 		/// Implementation using inotify
@@ -268,15 +288,15 @@ struct FileWatch
 				assert(fd != -1,
 						"inotify_init1 returned invalid file descriptor. Error code "
 						~ errno.to!string);
-				wd = inotify_add_watch(fd, path.toStringz,
-						IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MODIFY | IN_MOVE_SELF
-						| IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB | IN_EXCL_UNLINK);
-				assert(wd != -1,
-						"inotify_add_watch returned invalid watch descriptor. Error code "
-						~ errno.to!string);
-				events ~= FileChangeEvent(FileChangeEventType.createSelf, ".");
-				assert(fcntl(fd, F_SETFD, FD_CLOEXEC) != -1,
-						"Could not set FD_CLOEXEC bit. Error code " ~ errno.to!string);
+				addWatch(path);
+				events ~= FileChangeEvent(FileChangeEventType.createSelf, path);
+
+				if (recursive)
+					foreach(string subPath; dirEntries(path, SpanMode.depth))
+					{
+						addWatch(subPath);
+						events ~= FileChangeEvent(FileChangeEventType.createSelf, subPath);
+					}
 			}
 			if (!fd)
 				return events;
@@ -296,9 +316,10 @@ struct FileWatch
 				while (true)
 				{
 					auto info = cast(inotify_event*)(eventBuffer.ptr + i);
-					assert(info.wd == wd);
 					// contains \0 at the end otherwise
 					string fileName = info.name.ptr.fromStringz().idup;
+					string absoluteFileName = buildPath(directoryMap[info.wd].path, fileName);
+					string relativeFilename = relativePath("/" ~ absoluteFileName, "/" ~ path);
 					if (cookie && (info.mask & IN_MOVED_TO) == 0)
 					{
 						events ~= FileChangeEvent(FileChangeEventType.remove, fromFilename);
@@ -306,11 +327,17 @@ struct FileWatch
 						cookie = 0;
 					}
 					if ((info.mask & IN_CREATE) != 0)
-						events ~= FileChangeEvent(FileChangeEventType.create, fileName);
+					{
+						if (absoluteFileName.isDir && recursive)
+						{
+							addWatch(absoluteFileName);
+						}
+						events ~= FileChangeEvent(FileChangeEventType.create, relativeFilename);
+					}
 					if ((info.mask & IN_DELETE) != 0)
-						events ~= FileChangeEvent(FileChangeEventType.remove, fileName);
+						events ~= FileChangeEvent(FileChangeEventType.remove, relativeFilename);
 					if ((info.mask & IN_MODIFY) != 0 || (info.mask & IN_ATTRIB) != 0)
-						events ~= FileChangeEvent(FileChangeEventType.modify, fileName);
+						events ~= FileChangeEvent(FileChangeEventType.modify, relativeFilename);
 					if ((info.mask & IN_MOVED_FROM) != 0)
 					{
 						fromFilename = fileName;
@@ -321,24 +348,24 @@ struct FileWatch
 						if (info.cookie == cookie)
 						{
 							events ~= FileChangeEvent(FileChangeEventType.rename,
-									fromFilename, fileName);
+									fromFilename, relativeFilename);
 						}
 						else
-							events ~= FileChangeEvent(FileChangeEventType.create, fileName);
+							events ~= FileChangeEvent(FileChangeEventType.create, relativeFilename);
 						cookie = 0;
 					}
 					if ((info.mask & IN_DELETE_SELF) != 0 || (info.mask & IN_MOVE_SELF) != 0)
 					{
 						if (fd)
 						{
-							inotify_rm_watch(fd, wd);
-							close(fd);
-							fd = wd = 0;
+							inotify_rm_watch(fd, info.wd);
+							directoryMap[info.wd].watched = false;
 						}
-						events ~= FileChangeEvent(FileChangeEventType.removeSelf, ".");
+						if (directoryMap[info.wd].path == path)
+							events ~= FileChangeEvent(FileChangeEventType.removeSelf, ".");
 					}
 					i += inotify_event.sizeof + info.len;
-					if (i >= receivedBytes || (cast(inotify_event*)(eventBuffer.ptr + i)).wd != wd)
+					if (i >= receivedBytes)
 						break;
 				}
 				if (cookie)
@@ -560,10 +587,14 @@ version (linux) unittest
 
 	if (exists("test2"))
 		rmdirRecurse("test2");
+	if (exists("test3"))
+		rmdirRecurse("test3");
 	scope (exit)
 	{
 		if (exists("test2"))
 			rmdirRecurse("test2");
+		if (exists("test3"))
+			rmdirRecurse("test3");
 	}
 
 	auto watcher = FileWatch("test2", true);
@@ -586,7 +617,90 @@ version (linux) unittest
 	ev = waitForEvent(watcher);
 	assert(ev.type == FileChangeEventType.remove);
 	assert(ev.path == "b.txt");
+
+	version (FSWUsesINotify)
+	{
+		// test for creation, modification, removal of subdirectory
+		mkdir("test2/subdir");
+		ev = waitForEvent(watcher);
+		assert(ev.type == FileChangeEventType.create);
+		assert(ev.path == "subdir");
+		write("test2/subdir/c.txt", "abc");
+		ev = waitForEvent(watcher);
+		assert(ev.type == FileChangeEventType.create);
+		assert(ev.path == "subdir/c.txt");
+		write("test2/subdir/c.txt", "\nabc");
+		ev = waitForEvent(watcher);
+		assert(ev.type == FileChangeEventType.modify);
+		assert(ev.path == "subdir/c.txt");
+		rmdirRecurse("test2/subdir");
+		auto events = watcher.getEvents();
+		assert(events[0].type == FileChangeEventType.remove);
+		assert(events[0].path == "subdir/c.txt");
+		assert(events[1].type == FileChangeEventType.remove);
+		assert(events[1].path == "subdir");
+	}
+	// removal of watched folder
 	rmdirRecurse("test2");
 	ev = waitForEvent(watcher);
 	assert(ev.type == FileChangeEventType.removeSelf);
+	assert(ev.path == ".");
+
+	version (FSWUsesINotify)
+	{
+		// test for a subdirectory already present
+		// both when recursive = true and recursive = false
+		foreach (recursive; [true, false])
+		{
+			mkdir("test3");
+			mkdir("test3/a");
+			mkdir("test3/a/b");
+			watcher = FileWatch("test3", recursive);
+			write("test3/a/b/c.txt", "abc");
+			if (recursive)
+			{
+				ev = waitForEvent(watcher);
+				assert(ev.type == FileChangeEventType.create);
+				assert(ev.path == "a/b/c.txt");
+			}
+			if (!recursive)
+			{
+				// creation of subdirectory and file within
+				// test that addWatch doesn't get called
+				mkdir("test3/d");
+				write("test3/d/e.txt", "abc");
+				auto revents = watcher.getEvents();
+				assert(revents.length == 1);
+				assert(revents[0].type == FileChangeEventType.create);
+				assert(revents[0].path == "d");
+				rmdirRecurse("test3/d");
+				revents = watcher.getEvents();
+				assert(revents.length == 1);
+				assert(revents[0].type == FileChangeEventType.remove);
+				assert(revents[0].path == "d");
+			}
+			rmdirRecurse("test3");
+			events = watcher.getEvents();
+			if (recursive)
+			{
+				assert(events.length == 4);
+				assert(events[0].type == FileChangeEventType.remove);
+				assert(events[0].path == "a/b/c.txt");
+				assert(events[1].type == FileChangeEventType.remove);
+				assert(events[1].path == "a/b");
+				assert(events[2].type == FileChangeEventType.remove);
+				assert(events[2].path == "a");
+				assert(events[3].type == FileChangeEventType.removeSelf);
+				assert(events[3].path == ".");
+			}
+			else
+			{
+				assert(events.length == 2);
+				assert(events[0].type == FileChangeEventType.remove);
+				assert(events[0].path == "a");
+				assert(events[1].type == FileChangeEventType.removeSelf);
+				assert(events[1].path == ".");
+			}
+		}
+	}
 }
