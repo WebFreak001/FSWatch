@@ -99,18 +99,9 @@ struct FileWatch
 		private ubyte[1024 * 4] changeBuffer; // 4kb buffer for file changes
 		private bool isDir, exists, recursive;
 		private SysTime timeLastModified;
+		private DWORD receivedBytes;
+		private OVERLAPPED overlapObj;
 		private bool queued; // Whether a directory changes watch is issued to Windows
-
-		void startWatchQueue() {
-			DWORD receivedBytes;
-			OVERLAPPED overlapObj;
-			if (!ReadDirectoryChangesW(pathHandle, changeBuffer.ptr, changeBuffer.length, recursive,
-					FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
-					&receivedBytes, &overlapObj, null))
-				throw new Exception("Failed to start directory watch queue. Error 0x" ~ GetLastError()
-					.to!string(16));
-			queued = true;
-		}
 		
 		/// Creates an instance using the Win32 API
 		this(string path, bool recursive = false, bool treatDirAsFile = false)
@@ -130,6 +121,15 @@ struct FileWatch
 			CloseHandle(pathHandle);
 		}
 
+		private void startWatchQueue() {
+			if (!ReadDirectoryChangesW(pathHandle, changeBuffer.ptr, changeBuffer.length, recursive,
+					FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
+					&receivedBytes, &overlapObj, null))
+				throw new Exception("Failed to start directory watch queue. Error 0x" ~ GetLastError()
+					.to!string(16));
+			queued = true;
+		}
+		
 		/// Implementation using Win32 API or polling for files
 		FileChangeEvent[] getEvents()
 		{
@@ -142,8 +142,6 @@ struct FileWatch
 				{
 					if (pathHandle)
 					{
-						DWORD receivedBytes;
-						OVERLAPPED overlapObj;
 						if (GetOverlappedResult(pathHandle, &overlapObj, &receivedBytes, false))
 						{
 						}
@@ -173,8 +171,6 @@ struct FileWatch
 				}
 				else
 				{
-					DWORD receivedBytes;
-					OVERLAPPED overlapObj;
 					if (GetOverlappedResult(pathHandle, &overlapObj, &receivedBytes, false))
 					{
 						int i = 0;
