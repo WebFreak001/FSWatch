@@ -558,6 +558,11 @@ unittest
 		{
 			Thread.sleep(1.msecs);
 		}
+		version (FSWUsesWin32) {
+			// ReadDirectoryW can give double modify messages, making the queue one event behind
+			// This 'flushes' double messages for now, until the intricacy of WinAPI is figured out
+			watcher.getEvents(); 
+		}
 		return ret[0];
 	}
 
