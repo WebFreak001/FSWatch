@@ -67,6 +67,19 @@ struct FileWatch
 
 	version (FSWUsesWin32)
 	{
+		/* 
+		 * The Windows version works by first creating an asynchronous path handle using CreateFile.
+		 * The name may suggest this creates a new file on disk, but it actually gives
+		 * a handle to basically anything I/O related. By using the flags FILE_FLAG_OVERLAPPED 
+		 * and FILE_FLAG_BACKUP_SEMANTICS it can be used in ReadDirectoryChangesW.
+		 * 'Overlapped' here means asynchronous, it can also be done synchronously but that would
+		 * mean getEvents() would wait until a directory change is registered.
+		 * The asynchronous results can be received in a callback, but since FSWatch is polling
+		 * based it polls the results using GetOverlappedResult. If messages are received, 
+		 * ReadDirectoryChangesW is called again. 
+		 * The function will not notify when the watched directory itself is removed, so
+		 * if it doesn't exist anymore the handle is closed and set to null until it exists again.
+		 */
 		import core.sys.windows.windows : HANDLE, OVERLAPPED, CloseHandle,
 			GetOverlappedResult, CreateFile, GetLastError,
 			ReadDirectoryChangesW, FILE_NOTIFY_INFORMATION, FILE_ACTION_ADDED,
@@ -82,14 +95,23 @@ struct FileWatch
 		import std.conv : to;
 		import std.datetime : SysTime;
 
-		private HANDLE pathHandle;
+		private HANDLE pathHandle; // Windows 'file' handle for ReadDirectoryChangesW
 		private ubyte[1024 * 4] changeBuffer; // 4kb buffer for file changes
 		private bool isDir, exists, recursive;
 		private SysTime timeLastModified;
-		private DWORD receivedBytes;
-		private OVERLAPPED overlapObj;
-		private bool queued;
+		private bool queued; // Whether a directory changes watch is issued to Windows
 
+		void startWatchQueue() {
+			DWORD receivedBytes;
+			OVERLAPPED overlapObj;
+			if (!ReadDirectoryChangesW(pathHandle, changeBuffer.ptr, changeBuffer.length, recursive,
+					FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
+					&receivedBytes, &overlapObj, null))
+				throw new Exception("Failed to start directory watch queue. Error 0x" ~ GetLastError()
+					.to!string(16));
+			queued = true;
+		}
+		
 		/// Creates an instance using the Win32 API
 		this(string path, bool recursive = false, bool treatDirAsFile = false)
 		{
@@ -98,7 +120,9 @@ struct FileWatch
 			isDir = !treatDirAsFile;
 			if (!isDir && recursive)
 				throw new Exception("Can't recursively check on a file");
-			getEvents();
+			getEvents(); // To create a path handle and start the watch queue
+			// The result, likely containing just 'createSelf' or 'removeSelf', is discarded
+			// This way, the first actual call to getEvents() returns actual events
 		}
 
 		~this()
@@ -109,12 +133,17 @@ struct FileWatch
 		/// Implementation using Win32 API or polling for files
 		FileChangeEvent[] getEvents()
 		{
-			if (isDir && (!path.exists || path.isDir))
+			const pathExists = path.exists; // cached so it is not called twice
+			if (isDir && (!pathExists || path.isDir))
 			{
-				if (!path.exists)
+				// ReadDirectoryChangesW does not report changes to the specified directory 
+				// itself, so 'removeself' is checked manually
+				if (!pathExists)
 				{
 					if (pathHandle)
 					{
+						DWORD receivedBytes;
+						OVERLAPPED overlapObj;
 						if (GetOverlappedResult(pathHandle, &overlapObj, &receivedBytes, false))
 						{
 						}
@@ -140,15 +169,12 @@ struct FileWatch
 				}
 				if (!queued)
 				{
-					if (!ReadDirectoryChangesW(pathHandle, changeBuffer.ptr, changeBuffer.length, recursive,
-							FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
-							&receivedBytes, &overlapObj, null))
-						throw new Exception("Failed to queue read. Error 0x" ~ GetLastError()
-								.to!string(16));
-					queued = true;
+					startWatchQueue();
 				}
 				else
 				{
+					DWORD receivedBytes;
+					OVERLAPPED overlapObj;
 					if (GetOverlappedResult(pathHandle, &overlapObj, &receivedBytes, false))
 					{
 						int i = 0;
@@ -187,6 +213,7 @@ struct FileWatch
 								break;
 						}
 						queued = false;
+						startWatchQueue();
 					}
 					else if (GetLastError() != ERROR_IO_PENDING
 							&& GetLastError() != ERROR_IO_INCOMPLETE)
