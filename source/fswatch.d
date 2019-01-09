@@ -121,7 +121,8 @@ struct FileWatch
 			CloseHandle(pathHandle);
 		}
 
-		private void startWatchQueue() {
+		private void startWatchQueue() 
+		{
 			if (!ReadDirectoryChangesW(pathHandle, changeBuffer.ptr, changeBuffer.length, recursive,
 					FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
 					&receivedBytes, &overlapObj, null))
@@ -558,7 +559,8 @@ unittest
 		{
 			Thread.sleep(1.msecs);
 		}
-		version (FSWUsesWin32) {
+		version (FSWUsesWin32) 
+		{
 			// ReadDirectoryW can give double modify messages, making the queue one event behind
 			// This 'flushes' double messages for now, until the intricacy of WinAPI is figured out
 			watcher.getEvents(); 
