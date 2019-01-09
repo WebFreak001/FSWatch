@@ -172,50 +172,59 @@ struct FileWatch
 				}
 				else
 				{
-					if (GetOverlappedResult(pathHandle, &overlapObj, &receivedBytes, false))
+					// ReadDirectoryW can give double modify messages, making the queue one event behind
+					// This sequence is repeated as a fix for now, until the intricacy of WinAPI is figured out
+					foreach(_; 0..2) 
 					{
-						int i = 0;
-						string fromFilename;
-						while (true)
+						if (GetOverlappedResult(pathHandle, &overlapObj, &receivedBytes, false))
 						{
-							auto info = cast(FILE_NOTIFY_INFORMATION*)(changeBuffer.ptr + i);
-							string fileName = (cast(wchar[])(
-									cast(ubyte*) info.FileName)[0 .. info.FileNameLength])
-								.toUTF8.idup;
-							switch (info.Action)
+							int i = 0;
+							string fromFilename;
+							while (true)
 							{
-							case FILE_ACTION_ADDED:
-								events ~= FileChangeEvent(FileChangeEventType.create, fileName);
-								break;
-							case FILE_ACTION_REMOVED:
-								events ~= FileChangeEvent(FileChangeEventType.remove, fileName);
-								break;
-							case FILE_ACTION_MODIFIED:
-								events ~= FileChangeEvent(FileChangeEventType.modify, fileName);
-								break;
-							case FILE_ACTION_RENAMED_OLD_NAME:
-								fromFilename = fileName;
-								break;
-							case FILE_ACTION_RENAMED_NEW_NAME:
-								events ~= FileChangeEvent(FileChangeEventType.rename,
-										fromFilename, fileName);
-								break;
-							default:
-								throw new Exception(
-										"Unknown file notify action 0x" ~ info.Action.to!string(
-										16));
+								auto info = cast(FILE_NOTIFY_INFORMATION*)(changeBuffer.ptr + i);
+								string fileName = (cast(wchar[])(
+										cast(ubyte*) info.FileName)[0 .. info.FileNameLength])
+									.toUTF8.idup;
+								switch (info.Action)
+								{
+								case FILE_ACTION_ADDED:
+									events ~= FileChangeEvent(FileChangeEventType.create, fileName);
+									break;
+								case FILE_ACTION_REMOVED:
+									events ~= FileChangeEvent(FileChangeEventType.remove, fileName);
+									break;
+								case FILE_ACTION_MODIFIED:
+									events ~= FileChangeEvent(FileChangeEventType.modify, fileName);
+									break;
+								case FILE_ACTION_RENAMED_OLD_NAME:
+									fromFilename = fileName;
+									break;
+								case FILE_ACTION_RENAMED_NEW_NAME:
+									events ~= FileChangeEvent(FileChangeEventType.rename,
+											fromFilename, fileName);
+									break;
+								default:
+									throw new Exception(
+											"Unknown file notify action 0x" ~ info.Action.to!string(
+											16));
+								}
+								i += info.NextEntryOffset;
+								if (info.NextEntryOffset == 0)
+									break;
 							}
-							i += info.NextEntryOffset;
-							if (info.NextEntryOffset == 0)
-								break;
+							queued = false;
+							startWatchQueue();
 						}
-						queued = false;
-						startWatchQueue();
+						else 
+						{
+							if (GetLastError() != ERROR_IO_PENDING
+								&& GetLastError() != ERROR_IO_INCOMPLETE)
+								throw new Exception("Error receiving changes. Error code 0x"
+									~ GetLastError().to!string(16));
+							break;
+						}
 					}
-					else if (GetLastError() != ERROR_IO_PENDING
-							&& GetLastError() != ERROR_IO_INCOMPLETE)
-						throw new Exception("Error receiving changes. Error code 0x" ~ GetLastError()
-								.to!string(16));
 				}
 				return events;
 			}
@@ -558,12 +567,6 @@ unittest
 		while ((ret = watcher.getEvents()).length == 0)
 		{
 			Thread.sleep(1.msecs);
-		}
-		version (FSWUsesWin32) 
-		{
-			// ReadDirectoryW can give double modify messages, making the queue one event behind
-			// This 'flushes' double messages for now, until the intricacy of WinAPI is figured out
-			watcher.getEvents(); 
 		}
 		return ret[0];
 	}
