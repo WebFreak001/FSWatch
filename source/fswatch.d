@@ -363,10 +363,22 @@ struct FileWatch
 					}
 					if ((info.mask & IN_CREATE) != 0)
 					{
-						if (absoluteFileName.isDir && recursive)
+						// If a dir/file is created and deleted immediately then
+						// isDir will throw FileException(ENOENT)
+						try
 						{
-							addWatch(absoluteFileName);
+							if (absoluteFileName.isDir && recursive)
+							{
+								addWatch(absoluteFileName);
+							}
 						}
+						catch (FileException err)
+						{
+							import core.stdc.errno;
+							if (err.errno != ENOENT)
+								throw err;
+						}
+
 						events ~= FileChangeEvent(FileChangeEventType.create, relativeFilename);
 					}
 					if ((info.mask & IN_DELETE) != 0)
