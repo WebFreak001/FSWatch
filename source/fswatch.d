@@ -62,8 +62,14 @@ else
 /// Specify `version = FSWForcePoll;` to force using std.file (is slower and more resource intensive than the other implementations)
 struct FileWatch
 {
+	// internal path variable which shouldn't be changed because it will not update inotify/poll/win32 structures uniformly.
+	string _path;
+
 	/// Path of the file set using the constructor
-	const string path;
+	const ref const(string) path() @property @safe @nogc nothrow pure
+	{
+		return _path;
+	}
 
 	version (FSWUsesWin32)
 	{
@@ -106,7 +112,7 @@ struct FileWatch
 		/// Creates an instance using the Win32 API
 		this(string path, bool recursive = false, bool treatDirAsFile = false)
 		{
-			this.path = absolutePath(path, getcwd);
+			_path = absolutePath(path, getcwd);
 			this.recursive = recursive;
 			isDir = !treatDirAsFile;
 			if (!isDir && recursive)
@@ -284,7 +290,7 @@ struct FileWatch
 		/// Creates an instance using the linux inotify API
 		this(string path, bool recursive = false, bool ignored = false)
 		{
-			this.path = path;
+			_path = path;
 			this.recursive = recursive;
 			getEvents();
 		}
@@ -450,7 +456,7 @@ struct FileWatch
 		/// Generic fallback implementation using std.file.dirEntries
 		this(string path, bool recursive = false, bool treatDirAsFile = false)
 		{
-			this.path = path;
+			_path = path;
 			cwd = getcwd;
 			this.recursive = recursive;
 			isDir = !treatDirAsFile;
@@ -595,6 +601,7 @@ unittest
 	}
 
 	auto watcher = FileWatch("test", true);
+	assert(watcher.path == "test");
 	mkdir("test");
 	auto ev = waitForEvent(watcher);
 	assert(ev.type == FileChangeEventType.createSelf);
