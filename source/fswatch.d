@@ -625,12 +625,16 @@ version (linux) unittest
 {
 	import core.thread;
 
-	FileChangeEvent waitForEvent(ref FileWatch watcher)
+	FileChangeEvent waitForEvent(ref FileWatch watcher, Duration timeout = 2.seconds)
 	{
 		FileChangeEvent[] ret;
+		Duration elapsed;
 		while ((ret = watcher.getEvents()).length == 0)
 		{
 			Thread.sleep(1.msecs);
+			elapsed += 1.msecs;
+			if (elapsed >= timeout)
+				throw new Exception("timeout");
 		}
 		return ret[0];
 	}
@@ -670,9 +674,19 @@ version (linux) unittest
 
 	mkdir("test2/mydir");
 	rmdir("test2/mydir");
-	ev = waitForEvent(watcher);
-	assert(ev.type == FileChangeEventType.create);
-	assert(ev.path == "mydir");
+	try
+	{
+		ev = waitForEvent(watcher);
+		// waitForEvent only returns first event (just a test method anyway) because on windows or unprecise platforms events can be spawned multiple times
+		// or could be never fired in case of slow polling mechanism
+		assert(ev.type == FileChangeEventType.create);
+		assert(ev.path == "mydir");
+	}
+	catch (Exception e)
+	{
+		if (e.msg != "timeout")
+			throw e;
+	}
 
 	version (FSWUsesINotify)
 	{
