@@ -265,9 +265,10 @@ struct FileWatch
 			IN_DELETE_SELF, IN_MODIFY, IN_MOVE_SELF, IN_MOVED_FROM, IN_MOVED_TO,
 			IN_NONBLOCK, IN_ATTRIB, IN_EXCL_UNLINK;
 		import core.sys.linux.unistd : close, read;
-		import core.sys.linux.fcntl : fcntl, F_SETFD, FD_CLOEXEC;
+		import core.sys.linux.fcntl : fcntl, F_SETFD, FD_CLOEXEC, stat, stat_t, S_ISDIR;
 		import core.sys.linux.errno : errno;
 		import core.sys.posix.poll : pollfd, poll, POLLIN;
+		import core.stdc.errno : ENOENT;
 		import std.algorithm : countUntil;
 		import std.string : toStringz, fromStringz;
 		import std.conv : to;
@@ -363,10 +364,24 @@ struct FileWatch
 					}
 					if ((info.mask & IN_CREATE) != 0)
 					{
-						if (absoluteFileName.isDir && recursive)
+						// If a dir/file is created and deleted immediately then
+						// isDir will throw FileException(ENOENT)
+						if (recursive)
 						{
-							addWatch(absoluteFileName);
+							stat_t dirCheck;
+							if (stat(absoluteFileName.toStringz, &dirCheck) == 0)
+							{
+								if (S_ISDIR(dirCheck.st_mode))
+									addWatch(absoluteFileName);
+							}
+							else
+							{
+								const err = errno;
+								if (err != ENOENT)
+									throw new FileException(absoluteFileName, err);
+							}
 						}
+
 						events ~= FileChangeEvent(FileChangeEventType.create, relativeFilename);
 					}
 					if ((info.mask & IN_DELETE) != 0)
@@ -610,12 +625,16 @@ version (linux) unittest
 {
 	import core.thread;
 
-	FileChangeEvent waitForEvent(ref FileWatch watcher)
+	FileChangeEvent waitForEvent(ref FileWatch watcher, Duration timeout = 2.seconds)
 	{
 		FileChangeEvent[] ret;
+		Duration elapsed;
 		while ((ret = watcher.getEvents()).length == 0)
 		{
 			Thread.sleep(1.msecs);
+			elapsed += 1.msecs;
+			if (elapsed >= timeout)
+				throw new Exception("timeout");
 		}
 		return ret[0];
 	}
@@ -652,6 +671,22 @@ version (linux) unittest
 	ev = waitForEvent(watcher);
 	assert(ev.type == FileChangeEventType.remove);
 	assert(ev.path == "b.txt");
+
+	mkdir("test2/mydir");
+	rmdir("test2/mydir");
+	try
+	{
+		ev = waitForEvent(watcher);
+		// waitForEvent only returns first event (just a test method anyway) because on windows or unprecise platforms events can be spawned multiple times
+		// or could be never fired in case of slow polling mechanism
+		assert(ev.type == FileChangeEventType.create);
+		assert(ev.path == "mydir");
+	}
+	catch (Exception e)
+	{
+		if (e.msg != "timeout")
+			throw e;
+	}
 
 	version (FSWUsesINotify)
 	{
