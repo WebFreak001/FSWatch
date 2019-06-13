@@ -265,9 +265,10 @@ struct FileWatch
 			IN_DELETE_SELF, IN_MODIFY, IN_MOVE_SELF, IN_MOVED_FROM, IN_MOVED_TO,
 			IN_NONBLOCK, IN_ATTRIB, IN_EXCL_UNLINK;
 		import core.sys.linux.unistd : close, read;
-		import core.sys.linux.fcntl : fcntl, F_SETFD, FD_CLOEXEC;
+		import core.sys.linux.fcntl : fcntl, F_SETFD, FD_CLOEXEC, stat, stat_t, S_ISDIR;
 		import core.sys.linux.errno : errno;
 		import core.sys.posix.poll : pollfd, poll, POLLIN;
+		import core.stdc.errno : ENOENT;
 		import std.algorithm : countUntil;
 		import std.string : toStringz, fromStringz;
 		import std.conv : to;
@@ -365,18 +366,20 @@ struct FileWatch
 					{
 						// If a dir/file is created and deleted immediately then
 						// isDir will throw FileException(ENOENT)
-						try
+						if (recursive)
 						{
-							if (absoluteFileName.isDir && recursive)
+							stat_t dirCheck;
+							if (stat(absoluteFileName.toStringz, &dirCheck) == 0)
 							{
-								addWatch(absoluteFileName);
+								if (S_ISDIR(dirCheck.st_mode))
+									addWatch(absoluteFileName);
 							}
-						}
-						catch (FileException err)
-						{
-							import core.stdc.errno;
-							if (err.errno != ENOENT)
-								throw err;
+							else
+							{
+								const err = errno;
+								if (err != ENOENT)
+									throw new FileException(absoluteFileName, err);
+							}
 						}
 
 						events ~= FileChangeEvent(FileChangeEventType.create, relativeFilename);
@@ -664,6 +667,12 @@ version (linux) unittest
 	ev = waitForEvent(watcher);
 	assert(ev.type == FileChangeEventType.remove);
 	assert(ev.path == "b.txt");
+
+	mkdir("test2/mydir");
+	rmdir("test2/mydir");
+	ev = waitForEvent(watcher);
+	assert(ev.type == FileChangeEventType.create);
+	assert(ev.path == "mydir");
 
 	version (FSWUsesINotify)
 	{
