@@ -66,23 +66,23 @@ struct FileWatch
 	string _path;
 
 	/// Path of the file set using the constructor
-	const ref const(string) path() @property @safe @nogc nothrow pure
+	const ref const(string) path() return @property @safe @nogc nothrow pure
 	{
 		return _path;
 	}
 
 	version (FSWUsesWin32)
 	{
-		/* 
+		/*
 		 * The Windows version works by first creating an asynchronous path handle using CreateFile.
 		 * The name may suggest this creates a new file on disk, but it actually gives
-		 * a handle to basically anything I/O related. By using the flags FILE_FLAG_OVERLAPPED 
+		 * a handle to basically anything I/O related. By using the flags FILE_FLAG_OVERLAPPED
 		 * and FILE_FLAG_BACKUP_SEMANTICS it can be used in ReadDirectoryChangesW.
 		 * 'Overlapped' here means asynchronous, it can also be done synchronously but that would
 		 * mean getEvents() would wait until a directory change is registered.
 		 * The asynchronous results can be received in a callback, but since FSWatch is polling
-		 * based it polls the results using GetOverlappedResult. If messages are received, 
-		 * ReadDirectoryChangesW is called again. 
+		 * based it polls the results using GetOverlappedResult. If messages are received,
+		 * ReadDirectoryChangesW is called again.
 		 * The function will not notify when the watched directory itself is removed, so
 		 * if it doesn't exist anymore the handle is closed and set to null until it exists again.
 		 */
@@ -108,7 +108,7 @@ struct FileWatch
 		private DWORD receivedBytes;
 		private OVERLAPPED overlapObj;
 		private bool queued; // Whether a directory changes watch is issued to Windows
-		
+
 		/// Creates an instance using the Win32 API
 		this(string path, bool recursive = false, bool treatDirAsFile = false)
 		{
@@ -127,7 +127,7 @@ struct FileWatch
 			CloseHandle(pathHandle);
 		}
 
-		private void startWatchQueue() 
+		private void startWatchQueue()
 		{
 			if (!ReadDirectoryChangesW(pathHandle, changeBuffer.ptr, changeBuffer.length, recursive,
 					FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
@@ -136,14 +136,14 @@ struct FileWatch
 					.to!string(16));
 			queued = true;
 		}
-		
+
 		/// Implementation using Win32 API or polling for files
 		FileChangeEvent[] getEvents()
 		{
 			const pathExists = path.exists; // cached so it is not called twice
 			if (isDir && (!pathExists || path.isDir))
 			{
-				// ReadDirectoryChangesW does not report changes to the specified directory 
+				// ReadDirectoryChangesW does not report changes to the specified directory
 				// itself, so 'removeself' is checked manually
 				if (!pathExists)
 				{
@@ -180,7 +180,7 @@ struct FileWatch
 				{
 					// ReadDirectoryW can give double modify messages, making the queue one event behind
 					// This sequence is repeated as a fix for now, until the intricacy of WinAPI is figured out
-					foreach(_; 0..2) 
+					foreach(_; 0..2)
 					{
 						if (GetOverlappedResult(pathHandle, &overlapObj, &receivedBytes, false))
 						{
@@ -222,7 +222,7 @@ struct FileWatch
 							queued = false;
 							startWatchQueue();
 						}
-						else 
+						else
 						{
 							if (GetLastError() != ERROR_IO_PENDING
 								&& GetLastError() != ERROR_IO_INCOMPLETE)
