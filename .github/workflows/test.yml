@@ -8,6 +8,7 @@ jobs:
       matrix:
         dcompiler: [dmd-latest, dmd-beta, ldc-latest, ldc-beta]
         os: [ubuntu-latest, windows-latest, macOS-latest]
+        step: [FSWTestRun1, FSWTestRun2]
 
     runs-on: ${{ matrix.os }}
 
@@ -20,4 +21,4 @@ jobs:
     - name: Build
       run: dub build
     - name: Run Tests
-      run: dub test
+      run: dub test -d ${{ matrix.step }}
