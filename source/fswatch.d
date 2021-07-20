@@ -276,7 +276,7 @@ struct FileWatch
 		import core.sys.posix.poll : pollfd, poll, POLLIN;
 		import core.stdc.errno : ENOENT;
 		import std.algorithm : countUntil;
-		import std.string : toStringz, fromStringz;
+		import std.string : toStringz, stripRight;
 		import std.conv : to;
 		import std.path : relativePath, buildPath;
 
@@ -357,8 +357,7 @@ struct FileWatch
 				while (true)
 				{
 					auto info = cast(inotify_event*)(eventBuffer.ptr + i);
-					// contains \0 at the end otherwise
-					string fileName = info.name.ptr.fromStringz().idup;
+					string fileName = info.name.ptr[0..info.len].stripRight("\0").idup;
 					auto mapIndex = directoryMap.countUntil!(a => a.wd == info.wd);
 					string absoluteFileName = buildPath(directoryMap[mapIndex].path, fileName);
 					string relativeFilename = relativePath("/" ~ absoluteFileName, "/" ~ path);
