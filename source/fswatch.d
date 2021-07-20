@@ -357,8 +357,11 @@ struct FileWatch
 				while (true)
 				{
 					auto info = cast(inotify_event*)(eventBuffer.ptr + i);
-					// contains \0 at the end otherwise
-					string fileName = info.name.ptr.fromStringz().idup;
+
+					string fileName = "";
+					if (info.len > 0)
+						fileName = info.name.ptr.fromStringz().idup;
+
 					auto mapIndex = directoryMap.countUntil!(a => a.wd == info.wd);
 					string absoluteFileName = buildPath(directoryMap[mapIndex].path, fileName);
 					string relativeFilename = relativePath("/" ~ absoluteFileName, "/" ~ path);
