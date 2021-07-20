@@ -108,11 +108,13 @@ struct FileWatch
 		private DWORD receivedBytes;
 		private OVERLAPPED overlapObj;
 		private bool queued; // Whether a directory changes watch is issued to Windows
+		private string _absolutePath;
 
 		/// Creates an instance using the Win32 API
 		this(string path, bool recursive = false, bool treatDirAsFile = false)
 		{
-			_path = absolutePath(path, getcwd);
+			_path = path;
+			_absolutePath = absolutePath(path, getcwd);
 			this.recursive = recursive;
 			isDir = !treatDirAsFile;
 			if (!isDir && recursive)
@@ -140,8 +142,8 @@ struct FileWatch
 		/// Implementation using Win32 API or polling for files
 		FileChangeEvent[] getEvents()
 		{
-			const pathExists = path.exists; // cached so it is not called twice
-			if (isDir && (!pathExists || path.isDir))
+			const pathExists = _absolutePath.exists; // cached so it is not called twice
+			if (isDir && (!pathExists || _absolutePath.isDir))
 			{
 				// ReadDirectoryChangesW does not report changes to the specified directory
 				// itself, so 'removeself' is checked manually
@@ -162,7 +164,7 @@ struct FileWatch
 				FileChangeEvent[] events;
 				if (!pathHandle)
 				{
-					pathHandle = CreateFile((path.toUTF16 ~ cast(wchar) 0).ptr, FILE_LIST_DIRECTORY,
+					pathHandle = CreateFile((_absolutePath.toUTF16 ~ cast(wchar) 0).ptr, FILE_LIST_DIRECTORY,
 							FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
 							null, OPEN_EXISTING,
 							FILE_FLAG_OVERLAPPED | FILE_FLAG_BACKUP_SEMANTICS, null);
@@ -236,25 +238,25 @@ struct FileWatch
 			}
 			else
 			{
-				const nowExists = path.exists;
+				const nowExists = _absolutePath.exists;
 				if (nowExists && !exists)
 				{
 					exists = true;
-					timeLastModified = path.timeLastModified;
-					return [FileChangeEvent(FileChangeEventType.createSelf, path)];
+					timeLastModified = _absolutePath.timeLastModified;
+					return [FileChangeEvent(FileChangeEventType.createSelf, _absolutePath)];
 				}
 				else if (!nowExists && exists)
 				{
 					exists = false;
-					return [FileChangeEvent(FileChangeEventType.removeSelf, path)];
+					return [FileChangeEvent(FileChangeEventType.removeSelf, _absolutePath)];
 				}
 				else if (nowExists)
 				{
-					const modTime = path.timeLastModified;
+					const modTime = _absolutePath.timeLastModified;
 					if (modTime != timeLastModified)
 					{
 						timeLastModified = modTime;
-						return [FileChangeEvent(FileChangeEventType.modify, path)];
+						return [FileChangeEvent(FileChangeEventType.modify, _absolutePath)];
 					}
 					else
 						return [];
