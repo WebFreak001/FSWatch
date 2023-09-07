@@ -86,14 +86,17 @@ struct FileWatch
 		 * The function will not notify when the watched directory itself is removed, so
 		 * if it doesn't exist anymore the handle is closed and set to null until it exists again.
 		 */
-		import core.sys.windows.windows : HANDLE, OVERLAPPED, CloseHandle,
-			GetOverlappedResult, CreateFile, GetLastError,
-			ReadDirectoryChangesW, FILE_NOTIFY_INFORMATION, FILE_ACTION_ADDED,
+		import core.sys.windows.basetsd : HANDLE;
+
+		import core.sys.windows.winbase: OPEN_EXISTING, FILE_FLAG_OVERLAPPED, OVERLAPPED,
+			CloseHandle, GetOverlappedResult, CreateFile, GetLastError, ReadDirectoryChangesW,
+			FILE_FLAG_BACKUP_SEMANTICS;
+
+		import core.sys.windows.winnt: FILE_NOTIFY_INFORMATION, FILE_ACTION_ADDED,
 			FILE_ACTION_REMOVED, FILE_ACTION_MODIFIED,
 			FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
 			FILE_LIST_DIRECTORY, FILE_SHARE_WRITE, FILE_SHARE_READ,
-			FILE_SHARE_DELETE, OPEN_EXISTING, FILE_FLAG_OVERLAPPED,
-			FILE_FLAG_BACKUP_SEMANTICS, FILE_NOTIFY_CHANGE_FILE_NAME,
+			FILE_SHARE_DELETE, FILE_NOTIFY_CHANGE_FILE_NAME,
 			FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE,
 			ERROR_IO_PENDING, ERROR_IO_INCOMPLETE, DWORD;
 		import std.utf : toUTF8, toUTF16;
